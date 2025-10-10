@@ -1,0 +1,11 @@
+[package]
+name = "i8042"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+proto = { version = "0.1.0", path = "../proto" }
+log = "0.4.27"
+simple_logger = { version = "5.0.0", default-features = false }
+bitflags = "2.9.4"
+pc-keyboard = "0.8.0"
