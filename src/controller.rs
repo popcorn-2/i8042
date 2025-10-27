@@ -1,6 +1,6 @@
 use std::arch::asm;
-use std::cell::RefCell;
 use std::fmt::Debug;
+use std::sync::Mutex;
 use log::{debug, error, info, trace, warn};
 use crate::newtype_enum;
 
@@ -85,7 +85,7 @@ impl Port<'_> {
 	pub fn transaction(&self, command: &[u8], response_count: usize) -> Result<Vec<u8>, ()> {
 		let mut buf = Vec::with_capacity(response_count);
 
-		let _guard = self.controller.lock.borrow_mut();
+		let _guard = self.controller.lock.lock();
 
 		for _ in 0..3 {
 			for command in command {
@@ -142,7 +142,7 @@ impl Port<'_> {
 	}
 
 	pub fn read(&self) -> Result<u8, ()> {
-		let _guard = self.controller.lock.borrow_mut();
+		let _guard = self.controller.lock.lock();
 		self.read_inner()
 	}
 }
@@ -150,7 +150,7 @@ impl Port<'_> {
 pub struct Controller {
 	port1: bool,
 	port2: bool,
-	lock: RefCell<()>,
+	lock: Mutex<()>,
 	command: u16,
 	data: u16,
 }
@@ -229,7 +229,7 @@ impl Controller {
 		Ok(Self {
 			port1,
 			port2,
-			lock: RefCell::new(()),
+			lock: Mutex::new(()),
 			command: command_port,
 			data: data_port,
 		})

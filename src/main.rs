@@ -1,13 +1,23 @@
+#![feature(popcorn_protocol)]
+#![feature(macro_metavar_expr_concat)]
+
 #![deny(warnings)]
 
 use proto::client::BusNodeTr;
-use std::os::popcorn::handle::BorrowedHandle;
+use std::os::popcorn::handle::{AsRawHandle, BorrowedHandle};
+use std::sync::Arc;
+use std::thread;
 use log::{debug, error, info, warn, Level};
 use crate::controller::Port;
 
+extern crate alloc;
+
+#[macro_use]
+mod macros;
 mod controller;
 mod keyboard;
 mod mouse;
+mod server;
 
 #[macro_export]
 macro_rules! newtype_enum {
@@ -68,20 +78,38 @@ fn driver_main(handle: BorrowedHandle<'_, proto::client::BusNode>) -> Result<(),
 	println!("started PS/2 driver");
 	simple_logger::init_with_level(Level::Debug).unwrap();
 
-	let controller = controller::Controller::new(COMMAND_PORT, DATA_PORT)?;
-	let (port1, port2) = controller.get_ports();
+	let controller = Box::leak(Box::new(controller::Controller::new(COMMAND_PORT, DATA_PORT)?));
+	let (port1, _port2) = controller.get_ports();
+
+	let (kbd_send, kbd_recv) = async_channel::bounded(32);
+
+	let mut srv = server::ServerHandler::new()
+			.expect("unable to start server");
 
 	if let Some(port1) = port1 {
 		match init_port(port1) {
 			Ok(device) => {
-				let _handle = handle.create_child("0");
+				let device_handle = handle.create_child("0")
+						.expect("unable to create device");
 				if let Device::Keyboard(kbd) = device {
-					kbd.main_loop();
+					let keyboard_handle = srv.inner_mut()
+							.add_keyboard(kbd_recv)
+							.expect("unable to add keyboard");
+					let keyboard_handle = core::mem::ManuallyDrop::new(keyboard_handle);
+					device_handle.attach_device(keyboard_handle.as_raw_handle().0)
+							.expect("unable to add keyboard handle");
+					thread::Builder::new()
+							.name("i8042-kbd".to_owned())
+							.spawn(move || kbd.main_loop(kbd_send))
+							.expect("failed to spawn keyboard thread");
 				}
 			},
 			Err(e) => warn!("port1 failed to init ({e:?})"),
 		}
 	}
+
+	/*
+	HACK: once mutex fixed, uncomment this - right now fails since it tries to lock the mutex at the same time as kbd thread
 
 	if let Some(port2) = port2 {
 		match init_port(port2) {
@@ -91,8 +119,9 @@ fn driver_main(handle: BorrowedHandle<'_, proto::client::BusNode>) -> Result<(),
 			Err(e) => warn!("port1 failed to init ({e:?})"),
 		}
 	}
+	 */
 
-	Ok(())
+	Arc::new(srv).run()
 }
 
 #[derive(Debug)]
@@ -107,7 +136,7 @@ enum Device<'p> {
 	Mouse(mouse::Mouse),
 }
 
-fn init_port(port: Port) -> Result<Device<'_>, PortInitError> {
+fn init_port(port: Port<'_>) -> Result<Device<'_>, PortInitError> {
 	const RESET: u8 = 0xFF;
 	const DISABLE: u8 = 0xF5;
 	const IDENTIFY: u8 = 0xF2;

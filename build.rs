@@ -1,4 +1,17 @@
+use std::{env, fs};
+use std::path::PathBuf;
+use std::process::Command;
+
 fn main() {
-	println!("cargo:rustc-link-arg=--target=x86_64-unknown-popcorn");
-	println!("cargo:rustc-link-arg=--sysroot=/Users/Eliyahu/popcorn2/_build/sysroot");
+	println!("cargo:rerun-if-changed=/Users/Eliyahu/popcorn2/pipc/target/debug/pipc");
+	println!("cargo:rerun-if-changed=/Users/Eliyahu/popcorn2/pipc/test_input/devices.pip");
+
+	let output = Command::new("/Users/Eliyahu/popcorn2/pipc/target/debug/pipc")
+			.arg("/Users/Eliyahu/popcorn2/pipc/test_input/devices.pip")
+			.output()
+			.unwrap();
+	let mut f = PathBuf::from(env::var("OUT_DIR").unwrap());
+	f.push("protocol.gen.rs");
+	println!("cargo:rerun-if-changed={}", f.display());
+	fs::write(f, output.stdout).unwrap();
 }

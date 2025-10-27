@@ -1,6 +1,5 @@
-use log::{debug, error, info};
-use pc_keyboard::{EventDecoder, HandleControl, ScancodeSet, ScancodeSet2};
-use pc_keyboard::layouts::Uk105Key;
+use log::{error, info};
+use pc_keyboard::{KeyEvent, KeyState, ScancodeSet, ScancodeSet2};
 use crate::controller::Port;
 
 pub struct Keyboard<'p> {
@@ -8,7 +7,7 @@ pub struct Keyboard<'p> {
 }
 
 impl Keyboard<'_> {
-	pub fn new(port: Port) -> Result<Keyboard<'_>, ()> {
+	pub fn new(port: Port<'_>) -> Result<Keyboard<'_>, ()> {
 		// try and set scancode set 2
 		port.transaction(&[0xF0, 2], 0)?;
 		let scancode_set = port.transaction(&[0xF0, 0], 1)?;
@@ -25,15 +24,22 @@ impl Keyboard<'_> {
 		Ok(Keyboard { port })
 	}
 
-	pub fn main_loop(&self) {
+	pub fn main_loop(&self, channel: async_channel::Sender<u16>) -> ! {
 		let mut scancodes = ScancodeSet2::new();
-		let mut layout = EventDecoder::new(Uk105Key, HandleControl::Ignore);
 		loop {
 			if let Ok(packet) = self.port.read() {
 				match scancodes.advance_state(packet) {
-					Ok(Some(key)) => {
-						let decoded = layout.process_keyevent(key.clone());
-						debug!("{key:?} = {decoded:?}");
+					Ok(Some(KeyEvent { code, state })) => {
+						dbg!(code, state);
+						let base = code as u16;
+						match state {
+							KeyState::Up => { let _ = channel.send_blocking(base | (1 << 15)); },
+							KeyState::Down => { let _ = channel.send_blocking(base); },
+							KeyState::SingleShot => {
+								let _ = channel.send_blocking(base);
+								let _ = channel.send_blocking(base | (1 << 15));
+							},
+						}
 					}
 					Ok(None) => { /* multi-byte scancode */ },
 					Err(e) => error!("decode error {e:?}"),
