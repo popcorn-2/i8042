@@ -6,7 +6,7 @@ pub mod server {
 
 pub mod client {
 	protocol! {
-        pub protocol HidKeyboard = 0x1002 {
+        pub protocol HidKeyboard = 0x1003 {
             ctor => {}
         }
     }
